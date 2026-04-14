@@ -205,3 +205,21 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+
+# Data (large files)
+data/*
+!data/.gitkeep
+
+# Outputs
+outputs/*
+
+# Models
+models/*
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environment
+venv/
