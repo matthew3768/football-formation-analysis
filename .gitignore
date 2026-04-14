@@ -214,6 +214,9 @@ data/*
 # Outputs
 outputs/*
 
+# YOLO model weights
+*.pt
+
 # Models
 models/*
 
@@ -223,3 +226,7 @@ __pycache__/
 
 # Virtual environment
 venv/
+
+# OS files
+.DS_Store
+Thumbs.db
