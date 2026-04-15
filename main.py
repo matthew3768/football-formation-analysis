@@ -3,8 +3,14 @@ from pathlib import Path
 from src.detection.detector import PlayerDetector
 from src.tracking.postprocess import (
     clean_tracking_data,
-    plot_frame_positions,
+    #plot_frame_positions,
     summarise_players_per_frame,
+)
+from src.team_assignment.cluster import (
+    compute_average_positions,
+    cluster_teams,
+    save_team_assignments,
+    plot_team_clusters,
 )
 
 
@@ -14,8 +20,11 @@ VIDEO_IN = BASE_DIR / "data" / "clips" / "best_segment.mp4"
 VIDEO_OUT = BASE_DIR / "outputs" / "best_segment_tracking_clip_0_1.mp4"
 RAW_CSV_OUT = BASE_DIR / "outputs" / "best_segment_tracking_clip_0_1.csv"
 CLEAN_CSV_OUT = BASE_DIR / "outputs" / "best_segment_tracking_clip_0_1_clean.csv"
-PLOT_OUT = BASE_DIR / "outputs" / "frame_500_positions.png"
 
+#PLOT_OUT = BASE_DIR / "outputs" / "frame_500_positions.png"
+AVG_POS_OUT = BASE_DIR / "outputs" / "best_segment_average_positions.csv"
+TEAM_ASSIGN_OUT = BASE_DIR / "outputs" / "best_segment_team_clusters.csv"
+TEAM_PLOT_OUT = BASE_DIR / "outputs" / "best_segment_team_clusters.png"
 
 # def main() -> None:
 #     detector = PlayerDetector(
@@ -47,11 +56,20 @@ def main() -> None:
 
     summarise_players_per_frame(CLEAN_CSV_OUT)
 
-    plot_frame_positions(
+    player_positions = compute_average_positions(
         csv_in=CLEAN_CSV_OUT,
-        frame_number=500,
-        image_out=PLOT_OUT,
+        csv_out=AVG_POS_OUT,
+        min_samples_per_track=20,
     )
+
+    clustered = cluster_teams(player_positions)
+
+    save_team_assignments(clustered, TEAM_ASSIGN_OUT)
+    plot_team_clusters(clustered, TEAM_PLOT_OUT)
+
+    print(f"Average positions saved to: {AVG_POS_OUT}")
+    print(f"Team assignments saved to: {TEAM_ASSIGN_OUT}")
+    print(f"Team cluster plot saved to: {TEAM_PLOT_OUT}")
 
 if __name__ == "__main__":
     main()
