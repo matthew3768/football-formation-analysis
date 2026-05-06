@@ -211,11 +211,20 @@ __marimo__/
 data/raw/
 data/clips/
 data/soccernet/
+data/uploads/
+
 !data/.gitkeep
 
 # Outputs
 outputs/
 !outputs/.gitkeep
+
+#generated media
+*.mp4
+*.csv
+*.png
+*.jpg
+*.jpeg
 
 # Models
 models/
@@ -234,6 +243,9 @@ venv/
 
 # Jupyter
 .ipynb_checkpoints/
+
+#Streamlit
+.streamlit/secrets.toml
 
 # OS files
 .DS_Store
