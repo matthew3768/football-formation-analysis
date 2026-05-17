@@ -35,8 +35,7 @@ class PlayerTracker:
         """
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-        # Broad green range that works better across shaded / sunlit grass than
-        # a very tight threshold.
+        # A broad green range is more robust to shade and sunlight than a tight threshold.
         lower_green = np.array([25, 35, 35])
         upper_green = np.array([95, 255, 255])
         mask = cv2.inRange(hsv, lower_green, upper_green)
@@ -61,7 +60,13 @@ class PlayerTracker:
 
         return pitch_mask
 
-    def run(self, video_in: Path, video_out: Path, csv_out: Path) -> tuple[Path, Path]:
+    def run(
+        self,
+        video_in: Path,
+        video_out: Path,
+        csv_out: Path,
+        progress_callback=None,
+    ) -> tuple[Path, Path]:
         if not video_in.exists():
             raise FileNotFoundError(f"Input video not found: {video_in}")
 
@@ -75,6 +80,7 @@ class PlayerTracker:
         fps = cap.get(cv2.CAP_PROP_FPS) or 25
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
 
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         out = cv2.VideoWriter(str(video_out), fourcc, fps, (width, height))
@@ -165,6 +171,8 @@ class PlayerTracker:
                 out.write(frame)
 
                 frame_idx += 1
+                if progress_callback is not None and total_frames > 0:
+                    progress_callback(min(frame_idx / total_frames, 1.0), frame_idx, total_frames)
                 if frame_idx % 100 == 0:
                     print(f"Tracked {frame_idx} frames...")
 

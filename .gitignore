@@ -221,7 +221,10 @@ outputs/
 
 #generated media
 *.mp4
+*.mkv
+*.mov
 *.csv
+*.json
 *.png
 *.jpg
 *.jpeg

@@ -10,6 +10,7 @@ from src.tracking.postprocess import (
 from src.team_assignment.cluster import (
     compute_average_positions,
     cluster_teams,
+    keep_best_players_per_team,
     save_team_assignments,
     plot_team_clusters,
 )
@@ -79,6 +80,7 @@ def main() -> None:
         tracking_csv=CLEAN_CSV_OUT,
         video_in=VIDEO_IN,
     )
+    clustered = keep_best_players_per_team(clustered, max_players_per_team=11)
 
     save_team_assignments(clustered, TEAM_ASSIGN_OUT)
     plot_team_clusters(clustered, TEAM_PLOT_OUT)

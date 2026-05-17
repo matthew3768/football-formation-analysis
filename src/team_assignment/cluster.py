@@ -25,7 +25,7 @@ def compute_average_positions(
     valid_ids = track_counts[track_counts >= min_samples_per_track].index
     df = df[df["track_id"].isin(valid_ids)].copy()
 
-    # Keep only the longest-lasting tracks
+    # Longer-lived tracks are usually the most reliable candidates for analysis.
     top_ids = df["track_id"].value_counts().head(max_tracks).index
     df = df[df["track_id"].isin(top_ids)].copy()
 
@@ -87,10 +87,7 @@ def cluster_teams(
     raw_labels = kmeans.fit_predict(X)
     raw_counts = pd.Series(raw_labels).value_counts().sort_index()
 
-    # If colour clustering gives a football-impossible split, rebalance by
-    # assigning the 12 most colour-compatible tracks to each side. This keeps
-    # colour as the primary signal while preventing 7/17-style collapses caused
-    # by lighting, goalkeepers, or muted kits.
+    # Rebalance only when colour clustering produces an implausible team split.
     if len(result) == 24 and raw_counts.max() - raw_counts.min() > 4:
         distances = kmeans.transform(X)
         margin = distances[:, 0] - distances[:, 1]
@@ -179,7 +176,7 @@ def extract_track_jersey_colours(
             box_w = max(1, x2 - x1)
             box_h = max(1, y2 - y1)
 
-            # Torso crop: avoids boots, shorts, and a lot of grass leakage.
+            # Torso crops reduce contamination from shorts, boots, and grass.
             crop_x1 = x1 + int(box_w * 0.2)
             crop_x2 = x2 - int(box_w * 0.2)
             crop_y1 = y1 + int(box_h * 0.15)
@@ -228,6 +225,8 @@ def extract_track_jersey_colours(
         )
 
     return pd.DataFrame(rows)
+
+
 def _bright_hex_colour(rgb_values: list[int]) -> str:
     """
     Make learned team colours readable on a plot while preserving hue.
@@ -250,6 +249,40 @@ def save_team_assignments(
     csv_out.parent.mkdir(parents=True, exist_ok=True)
     clustered_df.to_csv(csv_out, index=False)
     return csv_out
+
+
+def keep_best_players_per_team(
+    clustered_df: pd.DataFrame,
+    max_players_per_team: int = 11,
+) -> pd.DataFrame:
+    """
+    Keep the most credible final player set for each team.
+
+    The clustering stage may retain a small buffer of extra tracks to absorb
+    noise. Before tactical analysis, prefer the tracks closest to the team's
+    central body so the final set reflects a football-realistic XI.
+    """
+    kept_frames = []
+
+    for _, team_df in clustered_df.groupby("team"):
+        if len(team_df) <= max_players_per_team:
+            kept_frames.append(team_df.copy())
+            continue
+
+        team_df = team_df.copy()
+        cx = team_df["foot_x"].median()
+        cy = team_df["foot_y"].median()
+        team_df["dist_to_team_centre"] = np.sqrt(
+            (team_df["foot_x"] - cx) ** 2
+            + (team_df["foot_y"] - cy) ** 2
+        )
+        kept_frames.append(
+            team_df.nsmallest(max_players_per_team, "dist_to_team_centre")
+            .drop(columns=["dist_to_team_centre"])
+            .copy()
+        )
+
+    return pd.concat(kept_frames, ignore_index=True)
 
 
 def plot_team_clusters(

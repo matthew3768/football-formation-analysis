@@ -11,9 +11,7 @@ def clean_tracking_data(
     min_track_length: int = 5,
 ) -> Path:
     """
-    Clean raw tracking CSV by:
-    1. Removing weak detections
-    2. Removing short-lived tracks
+    Filter unreliable detections and tracks from the raw tracking output.
 
     Args:
         csv_in: Path to raw tracking CSV
@@ -33,11 +31,9 @@ def clean_tracking_data(
 
     print(f"Raw rows: {len(df)}")
 
-    # Remove weak detections
     df = df[df["conf"] >= min_conf].copy()
     print(f"Rows after confidence filter ({min_conf}): {len(df)}")
 
-    # Remove short-lived tracks
     track_counts = df["track_id"].value_counts()
     valid_ids = track_counts[track_counts >= min_track_length].index
     df = df[df["track_id"].isin(valid_ids)].copy()
@@ -56,8 +52,7 @@ def plot_frame_positions(
     image_out: Path,
 ) -> Path:
     """
-    Create a quick sanity-check scatter plot of player foot positions
-    for one frame.
+    Plot tracked player foot positions for one frame as a quick visual check.
 
     Args:
         csv_in: Path to cleaned tracking CSV
@@ -98,7 +93,7 @@ def plot_frame_positions(
 
 def summarise_players_per_frame(csv_in: Path) -> None:
     """
-    Print quick descriptive stats for number of tracked players per frame.
+    Print descriptive statistics for tracked-player counts per frame.
     """
     if not csv_in.exists():
         raise FileNotFoundError(f"Tracking CSV not found: {csv_in}")
@@ -149,7 +144,7 @@ def select_stable_window(
         if median_tracks < min_tracks:
             continue
 
-        # How much each tracked player wanders inside the window.
+        # Spread measures whether players remain in a tactically stable shape.
         per_track_spread = (
             window_df.groupby("track_id")[["foot_x", "foot_y"]]
             .std()
@@ -159,7 +154,7 @@ def select_stable_window(
             np.sqrt(per_track_spread["foot_x"] ** 2 + per_track_spread["foot_y"] ** 2).mean()
         )
 
-        # Penalise windows where the visible-player count flickers badly.
+        # Count instability captures tracking flicker across the window.
         count_instability = float(per_frame_counts.std(ddof=0) or 0.0)
 
         score = mean_spread + (count_instability * 10.0)
@@ -169,7 +164,7 @@ def select_stable_window(
             best_window = (start, end)
 
     if best_window is None:
-        # Graceful fallback: use the whole available clip.
+        # Fall back to the full clip if no window satisfies the thresholds.
         return min_frame, max_frame
 
     return best_window

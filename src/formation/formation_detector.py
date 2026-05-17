@@ -69,14 +69,11 @@ def cluster_lines_with_plausible_counts(
             assignments.extend([line_idx] * count)
             start += count
 
-        # Mild prior: four-back systems are more common, so a three/five-back
-        # shape should only win when it fits meaningfully better.
+        # Small prior against unusual back-line counts.
         if template[0] == 4:
             score *= 0.95
 
-        # More detailed shapes should earn their extra complexity. Without this,
-        # 4-line templates nearly always win because they can partition the same
-        # players more finely than 3-line templates.
+        # Extra lines should improve the fit enough to justify added complexity.
         if len(template) == 4:
             score *= 1.20
 
@@ -87,8 +84,7 @@ def cluster_lines_with_plausible_counts(
             best_assignment = assignments
             best_template = template
 
-    # Require a 4-line shape to beat the best 3-line alternative by a clear
-    # margin; otherwise prefer the simpler tactical reading.
+    # Prefer the simpler tactical reading when a 4-line fit is only marginally better.
     if best_template is not None and len(best_template) == 4:
         three_line_candidates = [item for item in candidate_results if len(item[0]) == 3]
         if three_line_candidates:
@@ -217,8 +213,7 @@ def detect_team_formation(
     goalkeeper, outfield = split_goalkeeper(team_df, defending_left=defending_left)
     outfield = keep_best_outfield_tracks(outfield, target_players=10)
 
-    # Only apply distance pruning if we still have more than a normal outfield
-    # unit. This avoids deleting genuine wide players from a valid XI.
+    # Avoid pruning genuine wide players once a full outfield unit is already present.
     if len(outfield) > 10:
         outfield = remove_team_outliers(outfield, max_dist=max_dist)
 
