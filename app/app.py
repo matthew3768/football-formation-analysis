@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(ROOT))
 
 from src.tracking.tracker import PlayerTracker
-from src.tracking.postprocess import clean_tracking_data
+from src.tracking.postprocess import clean_tracking_data, select_stable_window
 from src.team_assignment.cluster import (
     compute_average_positions,
     cluster_teams,
@@ -114,6 +114,13 @@ def run_analysis(video_path: Path) -> dict:
         min_track_length=5,
     )
 
+    stable_window = select_stable_window(
+        csv_in=clean_csv,
+        window_size=250,
+        step_size=25,
+        min_tracks=18,
+    )
+
     
     # Compute average positions
     
@@ -122,6 +129,7 @@ def run_analysis(video_path: Path) -> dict:
         csv_out=avg_csv,
         min_samples_per_track=20,
         max_tracks=24,
+        frame_range=stable_window,
     )
 
     
@@ -152,6 +160,9 @@ def run_analysis(video_path: Path) -> dict:
         "team_csv": team_csv,
         "team0_formation": formation_results["team0_formation"],
         "team1_formation": formation_results["team1_formation"],
+        "team0_diagnostics": formation_results["team0_diagnostics"],
+        "team1_diagnostics": formation_results["team1_diagnostics"],
+        "stable_window": stable_window,
     }
 
 # =========================================================
@@ -376,6 +387,13 @@ def show_dashboard():
                 """,
                 unsafe_allow_html=True,
             )
+            if results["team0_diagnostics"]["runner_up"] is not None:
+                runner = results["team0_diagnostics"]["runner_up"]
+                gap = results["team0_diagnostics"]["score_gap"]
+                st.caption(
+                    f"Runner-up: {runner['formation']} "
+                    f"(score gap {gap:.1f})"
+                )
 
         with col_b:
             st.markdown(
@@ -396,6 +414,17 @@ def show_dashboard():
             st.markdown("### Player Tracking Output")
             st.caption("Annotated video showing detected players and tracking IDs.")
             st.video(str(results["tracked_video"]))
+            st.caption(
+                f"Formation analysis used the most stable tracked window: "
+                f"frames {results['stable_window'][0]}–{results['stable_window'][1]}."
+            )
+            if results["team1_diagnostics"]["runner_up"] is not None:
+                runner = results["team1_diagnostics"]["runner_up"]
+                gap = results["team1_diagnostics"]["score_gap"]
+                st.caption(
+                    f"Runner-up: {runner['formation']} "
+                    f"(score gap {gap:.1f})"
+                )
 
         with tab2:
             st.markdown("### Team Clustering Output")

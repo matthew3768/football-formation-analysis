@@ -13,8 +13,13 @@ def compute_average_positions(
     csv_out=None,
     min_samples_per_track=20,
     max_tracks=24,
+    frame_range: tuple[int, int] | None = None,
 ):
     df = pd.read_csv(csv_in)
+
+    if frame_range is not None:
+        start_frame, end_frame = frame_range
+        df = df[(df["frame"] >= start_frame) & (df["frame"] <= end_frame)].copy()
 
     track_counts = df["track_id"].value_counts()
     valid_ids = track_counts[track_counts >= min_samples_per_track].index
@@ -77,9 +82,24 @@ def cluster_teams(
     if len(result) < 2:
         raise ValueError("Not enough valid jersey-colour tracks to cluster teams")
 
-    X = result[["lab_l", "lab_a", "lab_b"]]
+    X = result[["lab_l", "lab_a", "lab_b"]].to_numpy()
     kmeans = KMeans(n_clusters=2, random_state=random_state, n_init=10)
-    result["team"] = kmeans.fit_predict(X)
+    raw_labels = kmeans.fit_predict(X)
+    raw_counts = pd.Series(raw_labels).value_counts().sort_index()
+
+    # If colour clustering gives a football-impossible split, rebalance by
+    # assigning the 12 most colour-compatible tracks to each side. This keeps
+    # colour as the primary signal while preventing 7/17-style collapses caused
+    # by lighting, goalkeepers, or muted kits.
+    if len(result) == 24 and raw_counts.max() - raw_counts.min() > 4:
+        distances = kmeans.transform(X)
+        margin = distances[:, 0] - distances[:, 1]
+        order = np.argsort(margin)
+        balanced_labels = np.ones(len(result), dtype=int)
+        balanced_labels[order[:12]] = 0
+        result["team"] = balanced_labels
+    else:
+        result["team"] = raw_labels
 
     team_colours = (
         result.groupby("team")[["rgb_r", "rgb_g", "rgb_b"]]

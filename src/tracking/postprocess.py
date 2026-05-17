@@ -1,5 +1,6 @@
 from pathlib import Path
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 
 
@@ -107,3 +108,68 @@ def summarise_players_per_frame(csv_in: Path) -> None:
 
     print("\nPlayers per frame summary:")
     print(counts.describe())
+
+
+def select_stable_window(
+    csv_in: Path,
+    window_size: int = 250,
+    step_size: int = 25,
+    min_tracks: int = 18,
+) -> tuple[int, int]:
+    """
+    Find the calmest contiguous window of play for formation analysis.
+
+    Windows are rewarded for:
+    - keeping many tracked players visible
+    - maintaining similar player spacing from frame to frame
+
+    Lower score is better.
+    """
+    if not csv_in.exists():
+        raise FileNotFoundError(f"Tracking CSV not found: {csv_in}")
+
+    df = pd.read_csv(csv_in)
+    if df.empty:
+        raise ValueError("Tracking CSV is empty")
+
+    min_frame = int(df["frame"].min())
+    max_frame = int(df["frame"].max())
+
+    best_window = None
+    best_score = None
+
+    for start in range(min_frame, max_frame - window_size + 2, step_size):
+        end = start + window_size - 1
+        window_df = df[(df["frame"] >= start) & (df["frame"] <= end)].copy()
+        if window_df.empty:
+            continue
+
+        per_frame_counts = window_df.groupby("frame")["track_id"].nunique()
+        median_tracks = float(per_frame_counts.median())
+        if median_tracks < min_tracks:
+            continue
+
+        # How much each tracked player wanders inside the window.
+        per_track_spread = (
+            window_df.groupby("track_id")[["foot_x", "foot_y"]]
+            .std()
+            .fillna(0.0)
+        )
+        mean_spread = float(
+            np.sqrt(per_track_spread["foot_x"] ** 2 + per_track_spread["foot_y"] ** 2).mean()
+        )
+
+        # Penalise windows where the visible-player count flickers badly.
+        count_instability = float(per_frame_counts.std(ddof=0) or 0.0)
+
+        score = mean_spread + (count_instability * 10.0)
+
+        if best_score is None or score < best_score:
+            best_score = score
+            best_window = (start, end)
+
+    if best_window is None:
+        # Graceful fallback: use the whole available clip.
+        return min_frame, max_frame
+
+    return best_window

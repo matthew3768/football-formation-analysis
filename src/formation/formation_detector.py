@@ -22,36 +22,39 @@ def remove_team_outliers(team_df: pd.DataFrame, max_dist: float = 250) -> pd.Dat
     return filtered.drop(columns=["dist"])
 
 
-def cluster_lines(team_df: pd.DataFrame, k: int = 3) -> pd.DataFrame:
+def cluster_lines(team_df: pd.DataFrame, k: int = 3, axis_col: str = "foot_x") -> pd.DataFrame:
     team_df = team_df.copy()
 
-    X = team_df[["foot_y"]]
+    X = team_df[[axis_col]]
     kmeans = KMeans(n_clusters=k, random_state=0, n_init=10)
     team_df["line"] = kmeans.fit_predict(X)
 
     return team_df
 
 
-def cluster_lines_with_plausible_counts(team_df: pd.DataFrame) -> pd.DataFrame:
+def cluster_lines_with_plausible_counts(
+    team_df: pd.DataFrame,
+    axis_col: str = "foot_x",
+    ascending: bool = True,
+) -> tuple[pd.DataFrame, list[dict]]:
     """
     Assign outfield players to the most plausible common formation template.
-
-    This is more stable than unconstrained KMeans on broadcast-frame y values,
-    which can easily return shapes like 6-3-1 when perspective compresses one
-    line of players.
     """
     templates = [
         (4, 4, 2),
         (4, 3, 3),
         (3, 5, 2),
-        (4, 2, 3),  # useful when one nominal midfielder is very advanced
         (3, 4, 3),
         (5, 3, 2),
+        (4, 2, 3, 1),
+        (4, 1, 4, 1),
     ]
 
-    ordered = team_df.sort_values("foot_y").copy()
+    ordered = team_df.sort_values(axis_col, ascending=ascending).copy()
     best_score = None
     best_assignment = None
+    best_template = None
+    candidate_results = []
 
     for template in templates:
         if sum(template) != len(ordered):
@@ -62,28 +65,68 @@ def cluster_lines_with_plausible_counts(team_df: pd.DataFrame) -> pd.DataFrame:
         assignments = []
         for line_idx, count in enumerate(template):
             group = ordered.iloc[start:start + count]
-            score += float(((group["foot_y"] - group["foot_y"].mean()) ** 2).sum())
+            score += float(((group[axis_col] - group[axis_col].mean()) ** 2).sum())
             assignments.extend([line_idx] * count)
             start += count
+
+        # Mild prior: four-back systems are more common, so a three/five-back
+        # shape should only win when it fits meaningfully better.
+        if template[0] == 4:
+            score *= 0.95
+
+        # More detailed shapes should earn their extra complexity. Without this,
+        # 4-line templates nearly always win because they can partition the same
+        # players more finely than 3-line templates.
+        if len(template) == 4:
+            score *= 1.20
+
+        candidate_results.append((template, score, assignments))
 
         if best_score is None or score < best_score:
             best_score = score
             best_assignment = assignments
+            best_template = template
+
+    # Require a 4-line shape to beat the best 3-line alternative by a clear
+    # margin; otherwise prefer the simpler tactical reading.
+    if best_template is not None and len(best_template) == 4:
+        three_line_candidates = [item for item in candidate_results if len(item[0]) == 3]
+        if three_line_candidates:
+            best_three_template, best_three_score, best_three_assignment = min(
+                three_line_candidates,
+                key=lambda item: item[1],
+            )
+            if best_score > best_three_score * 0.80:
+                best_template = best_three_template
+                best_score = best_three_score
+                best_assignment = best_three_assignment
 
     if best_assignment is None:
-        return cluster_lines(team_df, k=3)
+        return cluster_lines(team_df, k=3, axis_col=axis_col), []
 
     ordered["line"] = best_assignment
-    return ordered
+    ranked_candidates = sorted(candidate_results, key=lambda item: item[1])
+    candidate_summary = [
+        {
+            "formation": "-".join(str(value) for value in template),
+            "score": float(score),
+        }
+        for template, score, _ in ranked_candidates
+    ]
+    return ordered, candidate_summary
 
 
-def sort_lines(team_df: pd.DataFrame) -> pd.DataFrame:
+def sort_lines(
+    team_df: pd.DataFrame,
+    axis_col: str = "foot_x",
+    ascending: bool = True,
+) -> pd.DataFrame:
     team_df = team_df.copy()
 
     line_order = (
-        team_df.groupby("line")["foot_y"]
+        team_df.groupby("line")[axis_col]
         .mean()
-        .sort_values()
+        .sort_values(ascending=ascending)
         .index
     )
 
@@ -115,10 +158,13 @@ def normalise_formation_orientation(formation: str) -> str:
     return "-".join(str(value) for value in counts)
 
 
-def split_goalkeeper(team_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+def split_goalkeeper(
+    team_df: pd.DataFrame,
+    defending_left: bool,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     team_df = team_df.copy()
 
-    gk_idx = team_df["foot_y"].idxmax()
+    gk_idx = team_df["foot_x"].idxmin() if defending_left else team_df["foot_x"].idxmax()
     goalkeeper = team_df.loc[[gk_idx]].copy()
     outfield = team_df.drop(index=gk_idx).copy()
 
@@ -158,17 +204,17 @@ def format_formation(team_lines: pd.DataFrame) -> str:
 
 def detect_team_formation(
     team_df: pd.DataFrame,
+    defending_left: bool,
     k: int = 3,
     max_dist: float = 250,
-    reverse: bool = False,
-) -> tuple[pd.DataFrame, pd.DataFrame, str]:
+) -> tuple[pd.DataFrame, pd.DataFrame, str, dict]:
     """
     Detect formation lines for one team.
 
     Returns:
         goalkeeper_df, outfield_lines_df, formation_string
     """
-    goalkeeper, outfield = split_goalkeeper(team_df)
+    goalkeeper, outfield = split_goalkeeper(team_df, defending_left=defending_left)
     outfield = keep_best_outfield_tracks(outfield, target_players=10)
 
     # Only apply distance pruning if we still have more than a normal outfield
@@ -183,21 +229,37 @@ def detect_team_formation(
         )
 
     if len(outfield) == 10:
-        outfield = cluster_lines_with_plausible_counts(outfield)
+        outfield, candidate_summary = cluster_lines_with_plausible_counts(
+            outfield,
+            axis_col="foot_x",
+            ascending=defending_left,
+        )
     else:
-        outfield = cluster_lines(outfield, k=k)
-        outfield = sort_lines(outfield)
-
-    if reverse:
-        outfield = reverse_lines(outfield)
+        outfield = cluster_lines(outfield, k=k, axis_col="foot_x")
+        outfield = sort_lines(
+            outfield,
+            axis_col="foot_x",
+            ascending=defending_left,
+        )
+        candidate_summary = []
 
     goalkeeper = goalkeeper.copy()
     goalkeeper["line"] = -1
 
     formation = format_formation(outfield)
-    formation = normalise_formation_orientation(formation)
 
-    return goalkeeper, outfield, formation
+    diagnostics = {
+        "best": candidate_summary[0] if candidate_summary else None,
+        "runner_up": candidate_summary[1] if len(candidate_summary) > 1 else None,
+        "score_gap": (
+            candidate_summary[1]["score"] - candidate_summary[0]["score"]
+            if len(candidate_summary) > 1
+            else None
+        ),
+        "candidates": candidate_summary,
+    }
+
+    return goalkeeper, outfield, formation, diagnostics
 
 
 def detect_formations(
@@ -217,12 +279,21 @@ def detect_formations(
     team0 = clustered_df[clustered_df["team"] == 0].copy()
     team1 = clustered_df[clustered_df["team"] == 1].copy()
 
-    gk0, team0_lines, formation0 = detect_team_formation(
-        team0, k=k, max_dist=max_dist, reverse=False
+    team0_defending_left = team0["foot_x"].median() < team1["foot_x"].median()
+    team1_defending_left = not team0_defending_left
+
+    gk0, team0_lines, formation0, diagnostics0 = detect_team_formation(
+        team0,
+        defending_left=team0_defending_left,
+        k=k,
+        max_dist=max_dist,
     )
 
-    gk1, team1_lines, formation1 = detect_team_formation(
-        team1, k=k, max_dist=max_dist, reverse=reverse_team_1
+    gk1, team1_lines, formation1, diagnostics1 = detect_team_formation(
+        team1,
+        defending_left=team1_defending_left,
+        k=k,
+        max_dist=max_dist,
     )
 
     team0_final = pd.concat([team0_lines, gk0], ignore_index=True)
@@ -237,4 +308,6 @@ def detect_formations(
         "team1_final": team1_final,
         "team0_formation": formation0,
         "team1_formation": formation1,
+        "team0_diagnostics": diagnostics0,
+        "team1_diagnostics": diagnostics1,
     }

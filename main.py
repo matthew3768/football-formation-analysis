@@ -4,6 +4,7 @@ from src.detection.detector import PlayerDetector
 from src.tracking.postprocess import (
     clean_tracking_data,
     #plot_frame_positions,
+    select_stable_window,
     summarise_players_per_frame,
 )
 from src.team_assignment.cluster import (
@@ -58,10 +59,19 @@ def main() -> None:
 
     summarise_players_per_frame(CLEAN_CSV_OUT)
 
+    stable_window = select_stable_window(
+        csv_in=CLEAN_CSV_OUT,
+        window_size=250,
+        step_size=25,
+        min_tracks=18,
+    )
+    print(f"Selected stable window: frames {stable_window[0]}-{stable_window[1]}")
+
     player_positions = compute_average_positions(
         csv_in=CLEAN_CSV_OUT,
         csv_out=AVG_POS_OUT,
         min_samples_per_track=20,
+        frame_range=stable_window,
     )
 
     clustered = cluster_teams(
