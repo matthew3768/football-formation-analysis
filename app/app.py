@@ -91,6 +91,8 @@ def run_analysis(video_path: Path) -> dict:
         imgsz=960,
         tracker_config="bytetrack.yaml",
         frame_skip=1,
+        filter_to_pitch=True,
+        pitch_erode_px=5,
     )
 
     tracker.run(
@@ -125,7 +127,11 @@ def run_analysis(video_path: Path) -> dict:
     
     # Team clustering
    
-    clustered = cluster_teams(player_positions)
+    clustered = cluster_teams(
+        player_positions,
+        tracking_csv=clean_csv,
+        video_in=video_path,
+    )
 
     save_team_assignments(clustered, team_csv)
 
@@ -136,7 +142,7 @@ def run_analysis(video_path: Path) -> dict:
     formation_results = detect_formations(
         clustered_df=clustered,
         k=3,
-        max_dist=250,
+        max_dist=350,
         reverse_team_1=True,
     )
 
@@ -148,78 +154,271 @@ def run_analysis(video_path: Path) -> dict:
         "team1_formation": formation_results["team1_formation"],
     }
 
+# =========================================================
 # Streamlit UI
+# =========================================================
 
 st.set_page_config(
     page_title="Football Tactical Analysis",
+    page_icon="⚽",
     layout="wide",
 )
 
-st.title("Football Tactical Analysis System")
+# -----------------------------
+# Global CSS
+# -----------------------------
 
-st.write(
+st.markdown(
     """
-Upload a football clip to:
-- detect players
-- track movement
-- cluster teams
-- estimate tactical formations
-"""
+    <style>
+    .stApp {
+        background: linear-gradient(135deg, #020617, #0f172a);
+        color: #f8fafc;
+    }
+
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+        max-width: 1400px;
+    }
+
+    .landing-container {
+        height: 85vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+    }
+
+    .landing-title {
+        font-size: 4rem;
+        font-weight: 900;
+        color: #f8fafc;
+        margin-bottom: 1rem;
+    }
+
+    .landing-subtitle {
+        font-size: 1.25rem;
+        color: #cbd5e1;
+        max-width: 850px;
+        margin-bottom: 2rem;
+    }
+
+    .hero {
+        background: linear-gradient(135deg, #14532d, #0f172a);
+        padding: 2rem;
+        border-radius: 22px;
+        margin-bottom: 2rem;
+        border: 1px solid #22c55e;
+    }
+
+    .hero-title {
+        font-size: 2.4rem;
+        font-weight: 800;
+        color: #f8fafc;
+    }
+
+    .hero-subtitle {
+        font-size: 1rem;
+        color: #cbd5e1;
+        max-width: 850px;
+    }
+
+    .formation-card {
+        background-color: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 18px;
+        padding: 1.5rem;
+        text-align: center;
+    }
+
+    .formation-label {
+        font-size: 0.95rem;
+        color: #cbd5e1;
+        margin-bottom: 0.4rem;
+    }
+
+    .formation-value {
+        font-size: 2.4rem;
+        font-weight: 800;
+        color: #22c55e;
+    }
+
+    div[data-testid="stFileUploader"] {
+        background-color: #111827;
+        padding: 1rem;
+        border-radius: 16px;
+        border: 1px solid #334155;
+    }
+
+    .stButton > button {
+        background-color: #22c55e;
+        color: white;
+        border: none;
+        border-radius: 12px;
+        padding: 0.75rem 1.5rem;
+        font-weight: 700;
+    }
+
+    .stButton > button:hover {
+        background-color: #16a34a;
+        color: white;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
-uploaded_file = st.file_uploader(
-    "Upload football video",
-    type=["mp4", "mkv", "mov"],
-)
+# -----------------------------
+# Session state
+# -----------------------------
 
-if uploaded_file is not None:
+if "page" not in st.session_state:
+    st.session_state.page = "home"
+
+
+# -----------------------------
+# Home / title page
+# -----------------------------
+
+def show_home():
+    st.markdown(
+        """
+        <div class="landing-container">
+            <div class="landing-title">⚽ Football Tactical Analysis</div>
+            <div class="landing-subtitle">
+                Automated player tracking, team clustering and formation detection
+                from broadcast football footage.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    col1, col2, col3 = st.columns([1, 1, 1])
+
+    with col2:
+        if st.button("▶ Enter Analysis Dashboard", use_container_width=True):
+            st.session_state.page = "dashboard"
+            st.rerun()
+
+
+# -----------------------------
+# Dashboard
+# -----------------------------
+
+def show_dashboard():
+    with st.sidebar:
+        st.header("System Configuration")
+
+        st.markdown("**Detection/Tracking:** YOLOv8s + ByteTrack")
+        st.markdown("**Confidence Threshold:** 0.25")
+        st.markdown("**Image Size:** 960")
+        st.markdown("**Formation Lines:** 3")
+        st.markdown("**Max Tracks:** 24")
+
+        st.divider()
+
+        st.info(
+            "These settings were selected during development to balance "
+            "tracking coverage, speed and formation stability."
+        )
+
+        if st.button("← Back to Title Page"):
+            st.session_state.page = "home"
+            st.rerun()
+
+    st.markdown(
+        """
+        <div class="hero">
+            <div class="hero-title">Football Tactical Analysis Dashboard</div>
+            <div class="hero-subtitle">
+                Upload a short match clip to generate tracking, team clustering
+                and formation outputs.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    uploaded_file = st.file_uploader(
+        "Upload a football clip",
+        type=["mp4", "mkv", "mov"],
+    )
+
+    if uploaded_file is None:
+        st.info("Upload a short football clip to begin tactical analysis.")
+        return
 
     video_path = save_uploaded_file(uploaded_file)
 
-    st.subheader("Uploaded Video")
-
+    st.markdown("## Uploaded Clip")
     st.video(str(video_path))
 
-    if st.button("Run Analysis"):
-
-        with st.spinner("Running tactical analysis pipeline..."):
-
+    if st.button("Run Tactical Analysis", use_container_width=True):
+        with st.spinner("Running player tracking, team clustering and formation detection..."):
             results = run_analysis(video_path)
 
         st.success("Analysis complete")
 
-        
-        # Main outputs
-    
-        col1, col2 = st.columns(2)
+        st.markdown("## Results Overview")
 
-        with col1:
-            st.subheader("Tracked Video")
+        col_a, col_b = st.columns(2)
 
-            st.video(str(results["tracked_video"]))
-
-        with col2:
-            st.subheader("Team Clustering")
-
-            st.image(
-                str(results["team_plot"]),
-                use_container_width=True,
+        with col_a:
+            st.markdown(
+                f"""
+                <div class="formation-card">
+                    <div class="formation-label">Team 0 Formation</div>
+                    <div class="formation-value">{results["team0_formation"]}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
 
-        # Formations
+        with col_b:
+            st.markdown(
+                f"""
+                <div class="formation-card">
+                    <div class="formation-label">Team 1 Formation</div>
+                    <div class="formation-value">{results["team1_formation"]}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
-        st.subheader("Detected Formations")
-
-        st.write(f"### Team 0 Formation: `{results['team0_formation']}`")
-
-        st.write(f"### Team 1 Formation: `{results['team1_formation']}`")
-
-      
-        # Download CSV
-        
-        st.download_button(
-            label="Download Team Cluster CSV",
-            data=Path(results["team_csv"]).read_bytes(),
-            file_name="team_clusters.csv",
-            mime="text/csv",
+        tab1, tab2, tab3 = st.tabs(
+            ["Tracked Video", "Team Clustering", "Export Data"]
         )
+
+        with tab1:
+            st.markdown("### Player Tracking Output")
+            st.caption("Annotated video showing detected players and tracking IDs.")
+            st.video(str(results["tracked_video"]))
+
+        with tab2:
+            st.markdown("### Team Clustering Output")
+            st.caption("Average tracked player positions clustered into two teams.")
+            st.image(str(results["team_plot"]), use_container_width=True)
+
+        with tab3:
+            st.markdown("### Download Results")
+            st.caption("Download the generated team clustering data.")
+
+            st.download_button(
+                label="Download Team Cluster CSV",
+                data=Path(results["team_csv"]).read_bytes(),
+                file_name="team_clusters.csv",
+                mime="text/csv",
+            )
+
+
+# -----------------------------
+# Page routing
+# -----------------------------
+
+if st.session_state.page == "home":
+    show_home()
+else:
+    show_dashboard()

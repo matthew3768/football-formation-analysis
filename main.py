@@ -44,6 +44,8 @@ def main() -> None:
         imgsz=960,
         tracker_config="bytetrack.yaml",
         frame_skip=1,
+        filter_to_pitch=True,
+        pitch_erode_px=5,
     )
     tracker.run(VIDEO_IN, VIDEO_OUT, RAW_CSV_OUT)
 
@@ -62,7 +64,11 @@ def main() -> None:
         min_samples_per_track=20,
     )
 
-    clustered = cluster_teams(player_positions)
+    clustered = cluster_teams(
+        player_positions,
+        tracking_csv=CLEAN_CSV_OUT,
+        video_in=VIDEO_IN,
+    )
 
     save_team_assignments(clustered, TEAM_ASSIGN_OUT)
     plot_team_clusters(clustered, TEAM_PLOT_OUT)
