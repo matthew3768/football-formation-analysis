@@ -426,7 +426,7 @@ st.markdown(
     }
 
     .landing-container {
-        height: 85vh;
+        height: 58vh;
         display: flex;
         flex-direction: column;
         justify-content: center;
@@ -445,7 +445,7 @@ st.markdown(
         font-size: 1.25rem;
         color: #cbd5e1;
         max-width: 850px;
-        margin-bottom: 2rem;
+        margin-bottom: 1rem;
     }
 
     .hero {
@@ -486,6 +486,12 @@ st.markdown(
         font-size: 2.4rem;
         font-weight: 800;
         color: #22c55e;
+    }
+
+    .formation-runner {
+        margin-top: 0.75rem;
+        font-size: 0.85rem;
+        color: #cbd5e1;
     }
 
     div[data-testid="stFileUploader"] {
@@ -621,23 +627,28 @@ def show_dashboard():
 
         col_a, col_b = st.columns(2)
 
+        def runner_up_markup(team_key: str) -> str:
+            diagnostics = results[f"{team_key}_diagnostics"]
+            runner = diagnostics["runner_up"]
+            if runner is None:
+                return ""
+            return (
+                '<div class="formation-runner">'
+                f"Runner-up: {runner['formation']}"
+                "</div>"
+            )
+
         with col_a:
             st.markdown(
                 f"""
                 <div class="formation-card">
                     <div class="formation-label">{results["team_labels"].get(0, "Team 0")} Formation</div>
                     <div class="formation-value">{results["team0_formation"]}</div>
+                    {runner_up_markup("team0")}
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
-            if results["team0_diagnostics"]["runner_up"] is not None:
-                runner = results["team0_diagnostics"]["runner_up"]
-                gap = results["team0_diagnostics"]["score_gap"]
-                st.caption(
-                    f"Runner-up: {runner['formation']} "
-                    f"(score gap {gap:.1f})"
-                )
 
         with col_b:
             st.markdown(
@@ -645,6 +656,7 @@ def show_dashboard():
                 <div class="formation-card">
                     <div class="formation-label">{results["team_labels"].get(1, "Team 1")} Formation</div>
                     <div class="formation-value">{results["team1_formation"]}</div>
+                    {runner_up_markup("team1")}
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -662,14 +674,6 @@ def show_dashboard():
                 f"Formation analysis used the most stable tracked window: "
                 f"frames {results['stable_window'][0]}–{results['stable_window'][1]}."
             )
-            if results["team1_diagnostics"]["runner_up"] is not None:
-                runner = results["team1_diagnostics"]["runner_up"]
-                gap = results["team1_diagnostics"]["score_gap"]
-                st.caption(
-                    f"Runner-up: {runner['formation']} "
-                    f"(score gap {gap:.1f})"
-                )
-
         with tab2:
             st.markdown("### Team Clustering Output")
             st.caption("Average tracked player positions clustered into two teams.")
