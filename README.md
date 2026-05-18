@@ -109,35 +109,6 @@ data/clips/best_segment.mp4
 
 That clip is not required for the dashboard because users can upload a clip directly.
 
-## Submission Zip Guidance
-
-Include these files and folders:
-
-- `app/`
-- `src/`
-- `scripts/`
-- `data/.gitkeep`
-- `outputs/.gitkeep`
-- `main.py`
-- `requirements.txt`
-- `README.md`
-- `LICENSE`
-- `yolov8s.pt`
-
-Do not include these generated or local-only files/folders:
-
-- `venv/`
-- `.git/`
-- `__pycache__/`
-- `.pytest_cache/`
-- `data/uploads/`
-- `data/raw/`
-- `data/clips/`, unless you are intentionally submitting a sample clip
-- `outputs/streamlit/`
-- generated `.mp4`, `.csv`, `.json`, `.png`, `.jpg`, or `.jpeg` output files
-
-The dashboard recreates upload and output folders when it runs.
-
 ## Outputs
 
 After analysis, outputs are written under:
